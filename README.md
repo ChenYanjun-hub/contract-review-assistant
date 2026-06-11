@@ -1,6 +1,6 @@
 # 购销合同法务审查助手
 
-本项目是一个本地 Web MVP，用 Next.js 封装 Coze 购销合同法务审查工作流。目标是在本地完成合同输入、审查参数配置、Coze 调用、结果展示和报告复制。
+本项目是一个面向购销合同场景的智能法务审查 Web 应用，用 Next.js 封装智能审查工作流，完成合同输入、审查策略配置、风险识别、结果展示、报告复制与下载。
 
 ## 功能范围
 
@@ -17,9 +17,9 @@
 
 ```text
 app/
-  page.tsx              首页
-  review/page.tsx       审查表单页
-  result/page.tsx       结果展示页
+  page.tsx              产品首页
+  review/page.tsx       审查工作台
+  result/page.tsx       审查报告页
   api/health/route.ts   接口联调健康检查
   api/review/route.ts   Coze 调用入口
   api/upload/route.ts   txt 文件解析入口
@@ -29,7 +29,8 @@ lib/
   mockResult.ts         演示兜底结果
   types.ts              类型定义
 data/samples/           示例合同
-docs/task-breakdown.md  分工和任务拆解
+docs/deployment.md      Vercel 部署指南
+docs/development-log.md 开发日志
 ```
 
 ## 本地启动
@@ -41,19 +42,25 @@ npm run dev
 
 访问 `http://localhost:3000`。
 
-## 演示流程
+## Vercel 部署
+
+项目支持 Next.js 全栈部署，推荐通过 Vercel 导入 GitHub 仓库：
+
+[Vercel 部署指南](./docs/deployment.md)
+
+## 产品体验流程
 
 1. 打开首页，点击“开始审查”。
-2. 在审查页点击“填入示例合同”，或直接使用默认示例合同。
+2. 在审查页点击“使用示例合同”，或粘贴真实合同文本。
 3. 确认我方公司名称、审查立场和审查模式。
 4. 点击“生成审查报告”。
 5. 进入结果页后，查看审查摘要、风险统计、风险清单。
-6. 点击“复制报告”，将报告正文复制到提交材料或演示文档中。
+6. 复制报告，或下载 `.md` / `.txt` 报告用于业务流转。
 
 审查页右侧会显示接口联调状态：
 
-- `Mock 兜底`：未配置 Token 或 Workflow ID，演示走示例结果。
-- `Coze 可联调`：Token 和 Workflow ID 已配置，可以发起真实工作流调用。
+- `示例结果模式`：未配置 Token 或 Workflow ID，系统使用示例结果完成体验。
+- `工作流已连接`：Token 和 Workflow ID 已配置，可以发起真实工作流调用。
 
 也可以直接访问：
 
@@ -74,16 +81,16 @@ COZE_TIMEOUT_MS=45000
 
 不要提交 `.env.local`，不要把 Coze Token 写入前端代码。
 
-## 联调检查清单
+## 工作流联调检查清单
 
-队友 API 到位后，优先检查：
+外部工作流配置到位后，优先检查：
 
 - `.env.local` 已填入 `COZE_API_TOKEN`。
 - `.env.local` 已填入 `COZE_MAIN_WORKFLOW_ID`。
-- 审查页右侧状态显示 `Coze 可联调`。
+- 审查页右侧状态显示 `工作流已连接`。
 - 跑通“买方 + 快速审查”。
 - Coze 返回能被 `normalizeResult` 转换成结果页结构。
-- 如果真实调用失败，页面应明确显示示例/兜底结果，不应白屏。
+- 如果真实调用失败，页面应明确显示示例结果模式，不应白屏。
 
 ## Coze 入参约定
 
@@ -126,6 +133,6 @@ COZE_TIMEOUT_MS=45000
 ## 当前限制
 
 - 当前本地文件解析优先支持 `.txt` 和粘贴文本。
-- `docx`、复杂 PDF、扫描件 OCR 暂不作为 MVP 主线。
+- `.docx`、复杂 PDF、扫描件 OCR 可作为后续增强。
 - 卖方审查能否体现差异，取决于 Coze 工作流提示词改造质量。
 - AI 内容仅供初步审查辅助，不构成正式法律意见。
