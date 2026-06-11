@@ -24,6 +24,8 @@ export default function ReviewPage() {
   const [otherStandard, setOtherStandard] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState("");
   const [progressStep, setProgressStep] = useState(0);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const contractChars = contractText.trim().length;
@@ -56,13 +58,31 @@ export default function ReviewPage() {
     if (!file) {
       return;
     }
-    if (!file.name.endsWith(".txt")) {
-      setError("当前前端本地解析优先支持 .txt；docx/pdf 可先复制文本粘贴，或后续转交 Coze 文件能力。");
-      return;
-    }
-    const text = await file.text();
-    setContractText(text);
+
+    setUploading(true);
     setError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData
+      });
+      const data = (await response.json()) as { fileName?: string; text?: string; error?: string };
+
+      if (!response.ok || !data.text) {
+        throw new Error(data.error || "文件解析失败，请重试。");
+      }
+
+      setContractText(data.text);
+      setUploadedFileName(data.fileName || file.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "文件解析失败，请重试。");
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function submitReview() {
@@ -72,7 +92,7 @@ export default function ReviewPage() {
       return;
     }
     if (!contractText.trim()) {
-      setError("请粘贴合同内容，或上传 txt 合同文本。");
+      setError("请粘贴合同内容，或上传 txt/docx 合同文件。");
       return;
     }
 
@@ -115,11 +135,13 @@ export default function ReviewPage() {
     setReviewStance("buyer");
     setReviewMode("quick");
     setOtherStandard("");
+    setUploadedFileName("");
     setError("");
   }
 
   function clearContract() {
     setContractText("");
+    setUploadedFileName("");
     setError("");
   }
 
@@ -179,7 +201,7 @@ export default function ReviewPage() {
               <div className="meta-list">
                 <span className="pill strong">{contractChars} 字</span>
                 <span className="pill">{estimatedClauses} 行内容</span>
-                <span className="pill">文本 / txt</span>
+                <span className="pill">文本 / txt / docx</span>
               </div>
             </div>
 
@@ -193,7 +215,7 @@ export default function ReviewPage() {
                     清空合同
                   </button>
                 </div>
-                <span className="hint">支持直接粘贴合同文本，也可上传 txt 文件。</span>
+                <span className="hint">支持直接粘贴合同文本，也可上传 txt 或 docx 文件。</span>
               </div>
               <textarea
                 className="contract-editor"
@@ -207,10 +229,17 @@ export default function ReviewPage() {
                 <input
                   id="contractFile"
                   type="file"
-                  accept=".txt"
+                  accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  disabled={uploading || loading}
                   onChange={(event) => handleFile(event.target.files?.[0])}
                 />
-                <span className="hint">建议上传可复制文本版本；扫描件、图片合同和复杂 PDF 应先转为可读文本。</span>
+                <span className="hint">
+                  {uploading
+                    ? "正在解析文件..."
+                    : uploadedFileName
+                      ? `已载入：${uploadedFileName}`
+                      : "建议上传可复制文本版本；扫描件、图片合同和复杂 PDF 应先转为可读文本。"}
+                </span>
               </div>
             </div>
           </div>
@@ -222,7 +251,7 @@ export default function ReviewPage() {
                   <h2>审查策略</h2>
                   <p>决定系统识别风险时采用的业务立场和审查深度。</p>
                 </div>
-                <span className="pill strong">{loading ? "审查中" : isReady ? "已就绪" : "待补全"}</span>
+                <span className="pill strong">{uploading ? "解析中" : loading ? "审查中" : isReady ? "已就绪" : "待补全"}</span>
               </div>
 
               <div className="field">
@@ -288,8 +317,8 @@ export default function ReviewPage() {
               </div>
 
               {error ? <p className="error">{error}</p> : null}
-              <button className="button primary" disabled={loading} onClick={submitReview} type="button">
-                {loading ? "正在审查..." : "生成审查报告"}
+              <button className="button primary" disabled={loading || uploading} onClick={submitReview} type="button">
+                {uploading ? "正在解析文件..." : loading ? "正在审查..." : "生成审查报告"}
               </button>
 
               {loading ? (
