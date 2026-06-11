@@ -395,8 +395,6 @@ textarea {
 }
 
 .workflow-card {
-  position: relative;
-  overflow: hidden;
   min-height: 230px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -405,14 +403,47 @@ textarea {
   padding: 22px;
 }
 
-.workflow-card span {
+.workflow-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workflow-card-head span {
   color: var(--primary-dark);
   font-size: 13px;
   font-weight: 900;
 }
 
+.workflow-icon {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border: 1px solid rgba(31, 78, 216, 0.24);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0)),
+    var(--soft-blue);
+  color: var(--primary);
+}
+
+.workflow-icon svg {
+  width: 30px;
+  height: 30px;
+}
+
+.workflow-icon path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .workflow-card h3 {
-  margin: 50px 0 10px;
+  margin: 24px 0 10px;
   font-size: 24px;
 }
 
@@ -420,18 +451,6 @@ textarea {
   margin: 0;
   color: var(--muted);
   line-height: 1.7;
-}
-
-.workflow-card::after {
-  content: "";
-  position: absolute;
-  top: 24px;
-  right: 24px;
-  width: 52px;
-  height: 52px;
-  border: 1px solid rgba(31, 78, 216, 0.2);
-  border-radius: 8px;
-  background: var(--soft-blue);
 }
 
 .cta-panel {
@@ -544,6 +563,10 @@ textarea {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.panel-title > div {
+  min-width: 0;
 }
 
 .panel-title h1,
@@ -706,6 +729,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
   min-height: 28px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -714,6 +738,8 @@ textarea {
   padding: 0 10px;
   font-size: 13px;
   font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .pill.strong {

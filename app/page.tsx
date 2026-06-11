@@ -1,5 +1,50 @@
 import Link from "next/link";
 
+const workflowSteps = [
+  {
+    number: "01",
+    title: "提交合同材料",
+    description: "粘贴合同文本或上传 txt/docx 文件，填写我方公司名称，选择买方或卖方立场。",
+    icon: (
+      <svg aria-hidden="true" viewBox="0 0 32 32">
+        <path d="M10 4.5h8.5L24 10v17.5H10z" />
+        <path d="M18.5 4.5V10H24" />
+        <path d="M13.5 15h7" />
+        <path d="M13.5 19h7" />
+        <path d="M13.5 23h4.5" />
+        <path d="M7 8.5v19h13" />
+      </svg>
+    )
+  },
+  {
+    number: "02",
+    title: "智能识别风险",
+    description: "根据购销合同审查规则识别条款缺失、表述不清、责任不对等和履约争议风险。",
+    icon: (
+      <svg aria-hidden="true" viewBox="0 0 32 32">
+        <path d="M16 5.5l9 4v6.5c0 5.7-3.7 9.6-9 11-5.3-1.4-9-5.3-9-11V9.5z" />
+        <path d="M16 12v5" />
+        <path d="M16 21h.01" />
+        <path d="M11.5 16.5l2.5 2.5 6.5-7" />
+      </svg>
+    )
+  },
+  {
+    number: "03",
+    title: "生成审查报告",
+    description: "输出风险评分、关键发现、结构化风险清单和可复制的专业报告正文。",
+    icon: (
+      <svg aria-hidden="true" viewBox="0 0 32 32">
+        <path d="M8 5h16v22H8z" />
+        <path d="M12 10h8" />
+        <path d="M12 15h8" />
+        <path d="M12 20h5" />
+        <path d="M21 22l2 2 4-5" />
+      </svg>
+    )
+  }
+];
+
 export default function HomePage() {
   return (
     <main className="shell">
@@ -153,21 +198,16 @@ export default function HomePage() {
             <h2>三步完成一次标准化初审。</h2>
           </div>
           <div className="workflow-row">
-            <article className="workflow-card">
-              <span>01</span>
-              <h3>提交合同材料</h3>
-              <p>粘贴合同文本或上传文本文件，填写我方公司名称，选择买方或卖方立场。</p>
-            </article>
-            <article className="workflow-card">
-              <span>02</span>
-              <h3>智能识别风险</h3>
-              <p>根据购销合同审查规则识别条款缺失、表述不清、责任不对等和履约争议风险。</p>
-            </article>
-            <article className="workflow-card">
-              <span>03</span>
-              <h3>生成审查报告</h3>
-              <p>输出风险评分、关键发现、结构化风险清单和可复制的专业报告正文。</p>
-            </article>
+            {workflowSteps.map((step) => (
+              <article className="workflow-card" key={step.number}>
+                <div className="workflow-card-head">
+                  <span>{step.number}</span>
+                  <div className="workflow-icon">{step.icon}</div>
+                </div>
+                <h3>{step.title}</h3>
+                <p>{step.description}</p>
+              </article>
+            ))}
           </div>
         </section>
 
