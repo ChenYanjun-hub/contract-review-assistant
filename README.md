@@ -86,10 +86,10 @@ COZE_TIMEOUT_MS=45000
 外部工作流配置到位后，优先检查：
 
 - `.env.local` 已填入 `COZE_API_TOKEN`。
-- `.env.local` 已填入 `COZE_MAIN_WORKFLOW_ID`。
+- `.env.local` 已填入 `COZE_MAIN_WORKFLOW_ID`，也兼容 `COZE_WORKFLOW_ID`。
 - 审查页右侧状态显示 `工作流已连接`。
-- 跑通“买方 + 快速审查”。
-- Coze 返回能被 `normalizeResult` 转换成结果页结构。
+- 跑通“采购方 + 快速审查”。
+- Coze 返回 Markdown 审查结果，后端能解析 `workflowResponse.data` 内层 JSON 并取出 `inner.data`。
 - 如果真实调用失败，页面应明确显示示例结果模式，不应白屏。
 
 ## Coze 入参约定
@@ -99,36 +99,24 @@ COZE_TIMEOUT_MS=45000
 | 前端字段 | 后端字段 | Coze 参数 | 示例 |
 | --- | --- | --- | --- |
 | 我方公司名称 | `companyName` | `company_name` | 上海星河科技有限公司 |
-| 审查立场 | `reviewStance` | `review_stance` | 买方 / 卖方 |
+| 审查立场 | `reviewStance` | `review_stance` | 采购方 / 销售方 |
 | 审查模式 | `reviewMode` | `review_mode` | 快速审查 / 精细审查 |
-| 合同文本 | `contractText` | `hetong` | 合同正文 |
-| 其他规则 | `otherStandard` | `other_standard` | 可选 |
+| 合同文件 | `file` / `contractText` | `hetong` | `{"file_id":"7649778087966179369"}` |
 
 ## Coze 输出建议
 
-建议队友在 Coze 结束节点输出以下 JSON：
+当前文件版工作流返回 Markdown 审查报告。Coze `/v1/workflow/run` 外层 `data` 是 JSON 字符串，后端会解析后取 `inner.data` 作为报告正文：
 
 ```json
 {
-  "overallRisk": "medium",
-  "summary": "合同总体摘要",
-  "riskStats": { "high": 1, "medium": 3, "low": 1 },
-  "riskItems": [
-    {
-      "id": "R-001",
-      "checkPoint": "质量标准",
-      "riskLevel": "high",
-      "contractText": "产品质量按双方约定执行。",
-      "reason": "质量标准过于笼统。",
-      "suggestion": "补充型号、规格、检测标准和不合格处理方式。",
-      "confidence": 0.91
-    }
-  ],
-  "finalAdvice": "签署前建议重点修改高风险条款。"
+  "content_type": 1,
+  "data": "## 购销合同采购方快速审查结果\\n\\n| 审查项 | 风险等级 | 修改建议 |",
+  "original_result": null,
+  "type_for_model": 2
 }
 ```
 
-`normalizeResult` 已兼容部分中文字段和 Coze 字符串化 JSON，但最终展示最稳定的方式仍然是固定输出结构。
+`normalizeResult` 已兼容 Markdown 字符串、部分中文字段和结构化 JSON；如果后续需要更强的风险筛选和统计，建议 Coze 同步输出结构化风险项。
 
 ## 当前限制
 

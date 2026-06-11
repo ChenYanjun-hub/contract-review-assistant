@@ -21,10 +21,10 @@ export default function ReviewPage() {
   const [reviewStance, setReviewStance] = useState<ReviewStance>("buyer");
   const [reviewMode, setReviewMode] = useState<ReviewMode>("quick");
   const [contractText, setContractText] = useState(sampleContract);
-  const [otherStandard, setOtherStandard] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState("");
   const [progressStep, setProgressStep] = useState(0);
   const [health, setHealth] = useState<HealthStatus | null>(null);
@@ -77,6 +77,7 @@ export default function ReviewPage() {
       }
 
       setContractText(data.text);
+      setSelectedFile(file);
       setUploadedFileName(data.fileName || file.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : "文件解析失败，请重试。");
@@ -103,16 +104,18 @@ export default function ReviewPage() {
     }, 650);
 
     try {
-      const response = await fetch("/api/review", {
+      const formData = new FormData();
+      formData.append("companyName", companyName);
+      formData.append("reviewStance", reviewStance);
+      formData.append("reviewMode", reviewMode);
+      formData.append("contractText", contractText);
+      if (selectedFile) {
+        formData.append("file", selectedFile, selectedFile.name);
+      }
+
+      const response = await fetch("/api/review-file", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          companyName,
-          reviewStance,
-          reviewMode,
-          contractText,
-          otherStandard
-        })
+        body: formData
       });
       const data = (await response.json()) as { result?: ReviewResult; error?: string };
       if (!response.ok || !data.result) {
@@ -134,20 +137,21 @@ export default function ReviewPage() {
     setCompanyName("上海星河科技有限公司");
     setReviewStance("buyer");
     setReviewMode("quick");
-    setOtherStandard("");
+    setSelectedFile(null);
     setUploadedFileName("");
     setError("");
   }
 
   function clearContract() {
     setContractText("");
+    setSelectedFile(null);
     setUploadedFileName("");
     setError("");
   }
 
   const progressItems = [
     "校验合同与审查参数",
-    health?.mode === "coze-ready" ? "调用智能审查工作流" : "启用示例审查结果",
+    health?.mode === "coze-ready" ? "上传合同并调用智能审查工作流" : "启用示例审查结果",
     "标准化风险清单并生成报告"
   ];
 
@@ -221,7 +225,11 @@ export default function ReviewPage() {
                 className="contract-editor"
                 id="contractText"
                 value={contractText}
-                onChange={(event) => setContractText(event.target.value)}
+                onChange={(event) => {
+                  setContractText(event.target.value);
+                  setSelectedFile(null);
+                  setUploadedFileName("");
+                }}
                 placeholder="请粘贴购销合同正文"
               />
               <div className="upload-line">
@@ -303,17 +311,6 @@ export default function ReviewPage() {
                     精细审查
                   </label>
                 </div>
-              </div>
-
-              <div className="field">
-                <label htmlFor="otherStandard">其他审核标准（选填）</label>
-                <textarea
-                  id="otherStandard"
-                  value={otherStandard}
-                  onChange={(event) => setOtherStandard(event.target.value)}
-                  style={{ minHeight: 116 }}
-                  placeholder="可粘贴额外审查规则；Excel 文件上传留作后续增强。"
-                />
               </div>
 
               {error ? <p className="error">{error}</p> : null}

@@ -11,8 +11,9 @@
 - 搭建 Next.js + TypeScript 前后端一体项目。
 - 完成首页、审查工作台、结果报告页三大核心页面。
 - 实现 `/api/review` 服务端接口，封装智能审查工作流调用。
+- 实现 `/api/review-file` 文件版审查接口，支持先上传合同文件到 Coze 并通过 `file_id` 执行工作流。
 - 实现 `/api/health` 健康检查接口，用于展示当前系统连接状态。
-- 实现结果标准化逻辑，兼容结构化 JSON、字符串化 JSON 和纯文本返回。
+- 实现结果标准化逻辑，兼容结构化 JSON、字符串化 JSON、Markdown 和纯文本返回。
 - 增加示例审查结果兜底，保证在外部工作流未配置时仍可完成完整产品体验。
 - 支持合同文本粘贴和 `.txt` / `.docx` 文件上传解析。
 - 支持审查立场选择：买方 / 卖方。
@@ -33,6 +34,7 @@
 - `app/review/page.tsx`：合同审查工作台。
 - `app/result/page.tsx`：智能审查报告页。
 - `app/api/review/route.ts`：审查接口。
+- `app/api/review-file/route.ts`：文件版审查接口。
 - `app/api/health/route.ts`：健康检查接口。
 - `lib/coze.ts`：智能审查工作流 API 封装。
 - `lib/normalizeResult.ts`：审查结果标准化。
@@ -57,5 +59,5 @@
 
 ### 下一步计划
 
-- 接入真实工作流 Token 和 Workflow ID 后进行联调。
+- 配置真实工作流 Token 和 Workflow ID 后进行线上联调。
 - 继续完善提交材料，包括截图、演示脚本和产品说明。

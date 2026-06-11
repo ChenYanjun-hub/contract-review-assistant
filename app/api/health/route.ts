@@ -15,14 +15,15 @@ function preview(value: string | undefined) {
 
 export async function GET() {
   const cozeTokenConfigured = Boolean(process.env.COZE_API_TOKEN);
-  const workflowIdConfigured = Boolean(process.env.COZE_MAIN_WORKFLOW_ID);
+  const workflowId = process.env.COZE_MAIN_WORKFLOW_ID || process.env.COZE_WORKFLOW_ID;
+  const workflowIdConfigured = Boolean(workflowId);
 
   const status: HealthStatus = {
     mode: cozeTokenConfigured && workflowIdConfigured ? "coze-ready" : "mock",
     cozeTokenConfigured,
     workflowIdConfigured,
     apiBase: process.env.COZE_API_BASE || "https://api.coze.cn",
-    workflowIdPreview: preview(process.env.COZE_MAIN_WORKFLOW_ID),
+    workflowIdPreview: preview(workflowId),
     checkedAt: new Date().toISOString()
   };
 
