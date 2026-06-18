@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { mockResult } from "@/lib/mockResult";
 import { riskLevelLabel } from "@/lib/normalizeResult";
-import type { ReviewResult, RiskLevel } from "@/lib/types";
+import type { ReviewExceptionKind, ReviewResult, RiskLevel } from "@/lib/types";
 
 const riskFilters: Array<{ label: string; value: "all" | RiskLevel }> = [
   { label: "全部", value: "all" },
@@ -44,24 +44,76 @@ function createReportId() {
   return `CR-${datePart}-${randomPart}`;
 }
 
+function suggestedClauseText(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (trimmed.startsWith("建议") || trimmed.startsWith("补充") || trimmed.startsWith("写明") || trimmed.startsWith("约定")) {
+    return `建议条款：${trimmed}`;
+  }
+  return `建议条款：建议补充约定“${trimmed}”。`;
+}
+
+function conciseSuggestionText(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (trimmed.startsWith("建议")) {
+    return trimmed;
+  }
+  return `建议：${trimmed}`;
+}
+
+function formalClauseText(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (trimmed.includes("写明") || trimmed.includes("约定") || trimmed.includes("补充")) {
+    return `建议条款表述：合同中应明确约定，${trimmed.replace(/^(建议|补充|写明|约定)/, "")}`;
+  }
+  return `建议条款表述：合同中应补充明确约定“${trimmed}”，并以书面条款固定双方责任边界。`;
+}
+
 export default function ResultPage() {
   const [result, setResult] = useState<ReviewResult>(mockResult);
   const [copied, setCopied] = useState(false);
   const [activeFilter, setActiveFilter] = useState<"all" | RiskLevel>("all");
   const [reportId, setReportId] = useState("");
   const [generatedAtIso, setGeneratedAtIso] = useState("");
+  const [resultStatus, setResultStatus] = useState<"loading" | "ready" | "missing" | "invalid">("loading");
+  const [reviewIssue, setReviewIssue] = useState("");
 
   useEffect(() => {
     setReportId(createReportId());
     setGeneratedAtIso(new Date().toISOString());
+    setReviewIssue(sessionStorage.getItem("latestReviewIssue") || "");
 
     const saved = sessionStorage.getItem("latestReviewResult");
-    if (saved) {
-      try {
-        setResult(JSON.parse(saved) as ReviewResult);
-      } catch {
-        setResult(mockResult);
+    if (!saved) {
+      setResultStatus("missing");
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(saved) as Partial<ReviewResult>;
+      if (
+        !parsed ||
+        !parsed.summary ||
+        !parsed.overallRisk ||
+        !parsed.riskStats ||
+        !Array.isArray(parsed.riskItems) ||
+        !parsed.finalAdvice
+      ) {
+        setResultStatus("invalid");
+        return;
       }
+      setResult(parsed as ReviewResult);
+      setResultStatus("ready");
+    } catch {
+      setResultStatus("invalid");
     }
   }, []);
 
@@ -75,6 +127,8 @@ export default function ResultPage() {
   const reportSource = result.isMock ? "示例结果模式" : "智能审查工作流";
   const reportScope = "购销合同初步法务审查";
   const reviewConfig = "通用购销合同审查规则";
+  const resultExceptionKind: ReviewExceptionKind | null =
+    resultStatus === "missing" ? "result_missing" : resultStatus === "invalid" ? "result_invalid" : null;
 
   const reportText = useMemo(() => {
     return [
@@ -93,7 +147,7 @@ export default function ResultPage() {
       "风险清单：",
       ...result.riskItems.map(
         (item, index) =>
-          `${index + 1}. 【${riskLevelLabel(item.riskLevel)}】${item.checkPoint}\n原文：${item.contractText}\n原因：${item.reason}\n建议：${item.suggestion}`
+          `${index + 1}. 【${riskLevelLabel(item.riskLevel)}】${item.checkPoint}\n原文：${item.contractText}\n原因：${item.reason}\n简洁版建议：${conciseSuggestionText(item.suggestion)}\n正式条款版建议：${formalClauseText(item.suggestion)}`
       ),
       "",
       `最终建议：${result.finalAdvice}`,
@@ -128,6 +182,104 @@ export default function ResultPage() {
     .slice(0, 3);
   const filteredItems =
     activeFilter === "all" ? result.riskItems : result.riskItems.filter((item) => item.riskLevel === activeFilter);
+  const groupedRiskItems = {
+    high: result.riskItems.filter((item) => item.riskLevel === "high"),
+    medium: result.riskItems.filter((item) => item.riskLevel === "medium"),
+    low: result.riskItems.filter((item) => item.riskLevel === "low")
+  };
+
+  if (resultStatus === "loading") {
+    return (
+      <main className="shell">
+        <div className="page">
+          <header className="topbar">
+            <a className="brand" href="/">
+              <span className="brand-mark">审</span>
+              购销合同法务审查助手
+            </a>
+            <nav className="nav">
+              <a href="/">首页</a>
+              <a href="/review">继续审查</a>
+            </nav>
+          </header>
+
+          <section className="report-empty-layout panel">
+            <div className="report-empty-copy">
+              <div className="eyebrow">Loading Result</div>
+              <h1>正在读取本次审查结果。</h1>
+              <p>系统正在校验会话结果并准备页面内容，请稍候。</p>
+            </div>
+
+            <aside className="exception-panel warning">
+              <div className="exception-panel-head">
+                <strong>结果载入中</strong>
+                <span className="pill">处理中</span>
+              </div>
+              <p>如果长时间未完成载入，请返回审查工作台重新发起一次审查。</p>
+            </aside>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
+  if (resultStatus !== "ready") {
+    const isMissing = resultExceptionKind === "result_missing";
+    return (
+      <main className="shell">
+        <div className="page">
+          <header className="topbar">
+            <a className="brand" href="/">
+              <span className="brand-mark">审</span>
+              购销合同法务审查助手
+            </a>
+            <nav className="nav">
+              <a href="/">首页</a>
+              <a href="/review">继续审查</a>
+            </nav>
+          </header>
+
+          <section className="report-empty-layout panel">
+            <div className="report-empty-copy">
+              <div className="eyebrow">Result State</div>
+              <h1>{isMissing ? "当前没有可展示的审查结果。" : "审查结果暂时不可用。"}</h1>
+              <p>
+                {isMissing
+                  ? "本次会话中尚未生成新的审查结果，或页面在脱离审查流程后被直接打开。"
+                  : "系统检测到返回结果结构不完整，建议重新发起审查，并保留人工复核作为补充判断。"}
+              </p>
+              <div className="actions">
+                <a className="button primary" href="/review">
+                  返回审查工作台
+                </a>
+                <a className="button" href="/">
+                  返回首页
+                </a>
+              </div>
+            </div>
+
+            <aside className="exception-panel warning">
+              <div className="exception-panel-head">
+                <strong>{isMissing ? "结果缺失状态" : "结果异常状态"}</strong>
+                <span className="pill">{isMissing ? "待发起" : "待重试"}</span>
+              </div>
+              <p>
+                {isMissing
+                  ? "建议返回审查工作台重新上传或粘贴合同内容，并完成一次新的审查提交。"
+                  : "建议重新发起审查任务；若多次返回异常结果，应结合人工复核确认合同风险。"}
+              </p>
+              <ul className="exception-list">
+                <li>{isMissing ? "当前页面未读取到 latestReviewResult 会话数据。" : "当前 latestReviewResult 数据结构未通过前端校验。"}</li>
+                {reviewIssue ? <li>最近一次流程提示：{reviewIssue}</li> : null}
+                <li>如为智能工作流波动，建议稍后重试。</li>
+              </ul>
+            </aside>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="shell">
       <div className="page">
@@ -164,6 +316,21 @@ export default function ResultPage() {
 
         <section className="report-grid">
           <aside className="side-stack summary-card">
+            {result.isMock ? (
+              <section className="exception-panel warning">
+                <div className="exception-panel-head">
+                  <strong>当前展示的是示例结果模式</strong>
+                  <span className="pill">需人工复核</span>
+                </div>
+                <p>
+                  本次结果未直接来自稳定的工作流返回，当前页面用于保障结果页可继续展示与流转，不应替代正式人工审查。
+                </p>
+                <ul className="exception-list">
+                  <li>{reviewIssue || "建议重新发起审查，确认工作流已正常返回结构化结果。"}</li>
+                  <li>高风险条款仍应优先进入人工复核。</li>
+                </ul>
+              </section>
+            ) : null}
             <section className="panel">
               <div className="panel-title">
                 <div>
@@ -323,7 +490,7 @@ export default function ResultPage() {
               <div className="result-header">
                 <div>
                   <h2>报告正文</h2>
-                  <p>用于业务流转材料、审批沟通或后续人工复核。</p>
+                  <p>用于业务流转材料、审批沟通或后续人工复核，重点风险已做分层突出。</p>
                 </div>
                 <div className="meta-list">
                   <button className="button" type="button" onClick={copyReport}>
@@ -337,7 +504,127 @@ export default function ResultPage() {
                   </button>
                 </div>
               </div>
-              <textarea className="report-box" readOnly value={reportText} />
+              <div className="report-body">
+                <section className={`report-body-hero ${result.overallRisk}`}>
+                  <div>
+                    <span className="eyebrow">Overall Conclusion</span>
+                    <h3>{riskLevelLabel(result.overallRisk)}，{scoreLabel(score)}</h3>
+                    <p>{result.summary}</p>
+                  </div>
+                  <div className="report-body-hero-stats">
+                    <div>
+                      <span>高风险</span>
+                      <strong>{result.riskStats.high}</strong>
+                    </div>
+                    <div>
+                      <span>中风险</span>
+                      <strong>{result.riskStats.medium}</strong>
+                    </div>
+                    <div>
+                      <span>低风险</span>
+                      <strong>{result.riskStats.low}</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="report-section">
+                  <div className="report-section-head">
+                    <div>
+                      <span className="eyebrow">Priority Risks</span>
+                      <h3>优先处理事项</h3>
+                    </div>
+                    <span className="pill strong">{highPriorityItems.length} 项需优先推进</span>
+                  </div>
+                  <div className="priority-report-list">
+                    {highPriorityItems.map((item) => (
+                      <article className={`priority-report-card ${item.riskLevel}`} key={`priority-${item.id}`}>
+                        <div className="priority-report-head">
+                          <div className="priority-risk-mark">
+                            {item.riskLevel === "high" ? <span className="risk-alert-icon">!</span> : null}
+                            <span className={`badge ${item.riskLevel}`}>{riskLevelLabel(item.riskLevel)}</span>
+                          </div>
+                          <span className="pill">置信度 {Math.round(item.confidence * 100)}%</span>
+                        </div>
+                        <h4>{item.checkPoint}</h4>
+                        <p>{item.reason}</p>
+                        {item.riskLevel === "high" ? <div className="priority-risk-note">建议在签署前优先完成条款修订与人工复核。</div> : null}
+                        <div className="priority-report-suggestion">{item.suggestion}</div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+
+                {(["high", "medium", "low"] as const).map((level) =>
+                  groupedRiskItems[level].length ? (
+                    <section className="report-section" key={`group-${level}`}>
+                      <div className="report-section-head">
+                        <div>
+                          <span className="eyebrow">Risk Details</span>
+                          <h3>{riskLevelLabel(level)}事项</h3>
+                        </div>
+                        <span className={`badge ${level}`}>{groupedRiskItems[level].length} 项</span>
+                      </div>
+
+                      <div className="report-entry-list">
+                        {groupedRiskItems[level].map((item, index) => (
+                          <article className={`report-entry ${item.riskLevel}`} key={`entry-${item.id}`}>
+                            <div className="report-entry-head">
+                              <div className="report-entry-title">
+                                <span className="report-entry-index">
+                                  {String(index + 1).padStart(2, "0")}
+                                </span>
+                                <div>
+                                  <span className={`badge ${item.riskLevel}`}>{riskLevelLabel(item.riskLevel)}</span>
+                                  <h4>{item.checkPoint}</h4>
+                                </div>
+                              </div>
+                              <span className="pill">置信度 {Math.round(item.confidence * 100)}%</span>
+                            </div>
+
+                            <div className="report-entry-grid">
+                              <div>
+                                <span>对应原文</span>
+                                <p>{item.contractText}</p>
+                              </div>
+                              <div>
+                                <span>判定原因</span>
+                                <p>{item.reason}</p>
+                              </div>
+                              <div className="suggestion-block">
+                                <span>修改建议</span>
+                                <p>{item.suggestion}</p>
+                                <div className="suggestion-stack">
+                                  <div className="suggestion-quote">
+                                    <strong>简洁版建议</strong>
+                                    <blockquote>{conciseSuggestionText(item.suggestion)}</blockquote>
+                                  </div>
+                                  <div className="suggestion-quote formal">
+                                    <strong>正式条款版建议</strong>
+                                    <blockquote>{formalClauseText(item.suggestion) || suggestedClauseText(item.suggestion)}</blockquote>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null
+                )}
+
+                <section className="report-section">
+                  <div className="report-section-head">
+                    <div>
+                      <span className="eyebrow">Final Advice</span>
+                      <h3>签署前建议</h3>
+                    </div>
+                  </div>
+                  <div className="final-advice-card">
+                    <p>{result.finalAdvice}</p>
+                    <small>AI 内容仅供初步审查辅助，不构成正式法律意见；高风险与低置信度事项建议继续人工复核。</small>
+                  </div>
+                </section>
+              </div>
             </section>
           </div>
         </section>

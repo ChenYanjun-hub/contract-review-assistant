@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runCozeWorkflow } from "@/lib/coze";
+import { CozeConfigError, runCozeWorkflow } from "@/lib/coze";
 import { mockResult } from "@/lib/mockResult";
 import { normalizeResult } from "@/lib/normalizeResult";
 import type { ReviewRequest } from "@/lib/types";
@@ -22,6 +22,19 @@ function validatePayload(payload: Partial<ReviewRequest>) {
   return "";
 }
 
+function buildMockFallback(message: string) {
+  return {
+    ...mockResult,
+    summary: `${mockResult.summary}（当前展示示例结果：${message}）`,
+    isMock: true,
+    source: "mock" as const
+  };
+}
+
+function allowMockFallback(err: unknown) {
+  return err instanceof CozeConfigError || process.env.COZE_ENABLE_MOCK_FALLBACK === "true";
+}
+
 export async function POST(request: Request) {
   let payload: ReviewRequest;
 
@@ -42,13 +55,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ result });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Coze 调用失败";
-    return NextResponse.json({
-      result: {
-        ...mockResult,
-        summary: `${mockResult.summary}（当前展示示例结果：${message}）`,
-        isMock: true,
-        source: "mock"
-      }
-    });
+    if (allowMockFallback(err)) {
+      return NextResponse.json({ result: buildMockFallback(message) });
+    }
+    return NextResponse.json({ error: `审查任务执行失败：${message}` }, { status: 502 });
   }
 }

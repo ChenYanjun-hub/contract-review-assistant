@@ -36,6 +36,14 @@ export type ReviewResult = {
   rawText?: string;
 };
 
+export type ReviewExceptionKind =
+  | "unsupported_format"
+  | "file_parse_failed"
+  | "missing_input"
+  | "workflow_failed"
+  | "result_missing"
+  | "result_invalid";
+
 export type HealthStatus = {
   mode: "mock" | "coze-ready";
   cozeTokenConfigured: boolean;

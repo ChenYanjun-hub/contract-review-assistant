@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { HealthStatus, ReviewMode, ReviewResult, ReviewStance } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import type {
+  HealthStatus,
+  ReviewExceptionKind,
+  ReviewMode,
+  ReviewResult,
+  ReviewStance
+} from "@/lib/types";
 
 const sampleContract = `购销合同
 
@@ -17,11 +23,14 @@ const sampleContract = `购销合同
 七、争议解决：双方协商不成的，提交甲方所在地人民法院诉讼解决。`;
 
 export default function ReviewPage() {
+  const contractInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [companyName, setCompanyName] = useState("上海星河科技有限公司");
   const [reviewStance, setReviewStance] = useState<ReviewStance>("buyer");
   const [reviewMode, setReviewMode] = useState<ReviewMode>("quick");
   const [contractText, setContractText] = useState(sampleContract);
   const [error, setError] = useState("");
+  const [exceptionKind, setExceptionKind] = useState<ReviewExceptionKind | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -54,13 +63,45 @@ export default function ReviewPage() {
     };
   }, []);
 
+  function classifyException(message: string): ReviewExceptionKind {
+    if (message.includes("当前支持上传") || message.includes("更换文件")) {
+      return "unsupported_format";
+    }
+    if (
+      message.includes("未能从文件中识别") ||
+      message.includes("文件解析失败") ||
+      message.includes("文件未损坏")
+    ) {
+      return "file_parse_failed";
+    }
+    if (
+      message.includes("请填写") ||
+      message.includes("请上传") ||
+      message.includes("请粘贴") ||
+      message.includes("不能为空")
+    ) {
+      return "missing_input";
+    }
+    return "workflow_failed";
+  }
+
+  function setException(message: string) {
+    setError(message);
+    setExceptionKind(classifyException(message));
+  }
+
+  function clearException() {
+    setError("");
+    setExceptionKind(null);
+  }
+
   async function handleFile(file: File | undefined) {
     if (!file) {
       return;
     }
 
     setUploading(true);
-    setError("");
+    clearException();
 
     try {
       const formData = new FormData();
@@ -80,24 +121,26 @@ export default function ReviewPage() {
       setSelectedFile(file);
       setUploadedFileName(data.fileName || file.name);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "文件解析失败，请重试。");
+      setException(err instanceof Error ? err.message : "文件解析失败，请重试。");
     } finally {
       setUploading(false);
     }
   }
 
   async function submitReview() {
-    setError("");
+    clearException();
     if (!companyName.trim()) {
-      setError("请填写我方公司名称。");
+      setException("请填写我方公司名称。");
       return;
     }
     if (!contractText.trim()) {
-      setError("请粘贴合同内容，或上传 txt/docx 合同文件。");
+      setException("请粘贴合同内容，或上传 txt/docx 合同文件。");
       return;
     }
 
     setLoading(true);
+    sessionStorage.removeItem("latestReviewResult");
+    sessionStorage.removeItem("latestReviewIssue");
     setProgressStep(1);
     const progressTimer = window.setInterval(() => {
       setProgressStep((step) => Math.min(step + 1, 3));
@@ -123,9 +166,13 @@ export default function ReviewPage() {
       }
       setProgressStep(3);
       sessionStorage.setItem("latestReviewResult", JSON.stringify(data.result));
+      sessionStorage.removeItem("latestReviewIssue");
       window.location.href = "/result";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "审查失败，请稍后重试。");
+      const message = err instanceof Error ? err.message : "审查失败，请稍后重试。";
+      sessionStorage.removeItem("latestReviewResult");
+      sessionStorage.setItem("latestReviewIssue", message);
+      setException(message);
     } finally {
       window.clearInterval(progressTimer);
       setLoading(false);
@@ -139,15 +186,46 @@ export default function ReviewPage() {
     setReviewMode("quick");
     setSelectedFile(null);
     setUploadedFileName("");
-    setError("");
+    clearException();
   }
 
   function clearContract() {
     setContractText("");
     setSelectedFile(null);
     setUploadedFileName("");
-    setError("");
+    clearException();
   }
+
+  const exceptionMetaMap: Record<
+    Exclude<ReviewExceptionKind, "result_missing" | "result_invalid">,
+    { title: string; description: string; tips: string[] }
+  > = {
+    unsupported_format: {
+      title: "当前文件格式暂不支持",
+      description: "请将合同转换为可复制文本版本后重新上传，或直接粘贴合同正文继续审查。",
+      tips: ["当前支持 `.txt` 与 `.docx` 文件。", "扫描件、图片合同和复杂 PDF 建议先转成可读文本。"]
+    },
+    file_parse_failed: {
+      title: "合同内容解析失败",
+      description: "系统未能从上传文件中提取出稳定可审查的文本内容，建议重新上传或直接粘贴正文。",
+      tips: ["请确认文件未损坏。", "若为扫描件或图片合同，请先进行 OCR 识别。"]
+    },
+    missing_input: {
+      title: "审查材料尚未补全",
+      description: "在发起审查前，需要补全必要输入项。请检查公司名称、合同正文或上传文件是否已准备完成。",
+      tips: ["公司名称为必填项。", "合同正文与上传文件二选一即可。"]
+    },
+    workflow_failed: {
+      title: "审查任务暂未成功返回",
+      description: "系统在调用智能审查工作流时未拿到稳定结果。可以稍后重试，或先使用示例合同继续演示流程。",
+      tips: ["检查网络与服务端配置是否正常。", "建议保留当前输入内容后重新发起审查。"]
+    }
+  };
+
+  const exceptionMeta =
+    exceptionKind && exceptionKind in exceptionMetaMap
+      ? exceptionMetaMap[exceptionKind as keyof typeof exceptionMetaMap]
+      : null;
 
   const progressItems = [
     "校验合同与审查参数",
@@ -224,11 +302,15 @@ export default function ReviewPage() {
               <textarea
                 className="contract-editor"
                 id="contractText"
+                ref={contractInputRef}
                 value={contractText}
                 onChange={(event) => {
                   setContractText(event.target.value);
                   setSelectedFile(null);
                   setUploadedFileName("");
+                  if (exceptionKind === "missing_input" || exceptionKind === "file_parse_failed") {
+                    clearException();
+                  }
                 }}
                 placeholder="请粘贴购销合同正文"
               />
@@ -236,6 +318,7 @@ export default function ReviewPage() {
                 <label htmlFor="contractFile">上传合同文本</label>
                 <input
                   id="contractFile"
+                  ref={fileInputRef}
                   type="file"
                   accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   disabled={uploading || loading}
@@ -267,7 +350,12 @@ export default function ReviewPage() {
                 <input
                   id="companyName"
                   value={companyName}
-                  onChange={(event) => setCompanyName(event.target.value)}
+                  onChange={(event) => {
+                    setCompanyName(event.target.value);
+                    if (exceptionKind === "missing_input") {
+                      clearException();
+                    }
+                  }}
                   placeholder="例如：上海星河科技有限公司"
                 />
               </div>
@@ -313,7 +401,65 @@ export default function ReviewPage() {
                 </div>
               </div>
 
-              {error ? <p className="error">{error}</p> : null}
+              {exceptionMeta ? (
+                <div className={`exception-panel ${exceptionKind === "workflow_failed" ? "warning" : "danger"}`}>
+                  <div className="exception-panel-head">
+                    <strong>{exceptionMeta.title}</strong>
+                    <span className="pill">{exceptionKind === "workflow_failed" ? "待重试" : "待处理"}</span>
+                  </div>
+                  <p>{exceptionMeta.description}</p>
+                  <ul className="exception-list">
+                    {exceptionMeta.tips.map((tip) => (
+                      <li key={tip}>{tip}</li>
+                    ))}
+                  </ul>
+                  <div className="exception-actions">
+                    {exceptionKind === "unsupported_format" || exceptionKind === "file_parse_failed" ? (
+                      <>
+                        <button
+                          className="button"
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          重新上传文件
+                        </button>
+                        <button
+                          className="button"
+                          type="button"
+                          onClick={() => contractInputRef.current?.focus()}
+                        >
+                          改为粘贴正文
+                        </button>
+                      </>
+                    ) : null}
+                    {exceptionKind === "missing_input" ? (
+                      <>
+                        <button
+                          className="button"
+                          type="button"
+                          onClick={() => contractInputRef.current?.focus()}
+                        >
+                          补全审查材料
+                        </button>
+                        <button className="button" type="button" onClick={loadSampleContract}>
+                          使用示例合同
+                        </button>
+                      </>
+                    ) : null}
+                    {exceptionKind === "workflow_failed" ? (
+                      <>
+                        <button className="button primary" type="button" onClick={submitReview}>
+                          重新发起审查
+                        </button>
+                        <button className="button" type="button" onClick={loadSampleContract}>
+                          继续演示流程
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                  <p className="error">{error}</p>
+                </div>
+              ) : null}
               <button className="button primary" disabled={loading || uploading} onClick={submitReview} type="button">
                 {uploading ? "正在解析文件..." : loading ? "正在审查..." : "生成审查报告"}
               </button>
