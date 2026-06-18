@@ -1052,6 +1052,45 @@ textarea {
   font-size: 14px;
 }
 
+.score-card small {
+  display: block;
+  margin-top: 10px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.score-basis-list {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  text-align: left;
+}
+
+.score-basis-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.score-basis-list span {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.score-basis-list strong {
+  margin: 0;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: right;
+}
+
 .report-grid {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);

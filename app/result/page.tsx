@@ -18,6 +18,23 @@ function riskScore(result: ReviewResult) {
   return Math.min(100, Math.round((weighted / total) * 2.4));
 }
 
+function hasStructuredScoringBasis(result: ReviewResult) {
+  return !result.isMock && result.riskItems.length > 0;
+}
+
+function scoringBasisLabel(result: ReviewResult, hasScoreBasis: boolean) {
+  if (hasScoreBasis) {
+    return "真实结构化结果";
+  }
+  if (result.isMock) {
+    return "示例 / 回退结果";
+  }
+  if (result.riskItems.length === 0) {
+    return "纯文本结果";
+  }
+  return "结构不完整";
+}
+
 function scoreLabel(score: number) {
   if (score >= 70) {
     return "需重点修改";
@@ -176,7 +193,10 @@ export default function ResultPage() {
     URL.revokeObjectURL(url);
   }
 
-  const score = riskScore(result);
+  const hasScoreBasis = hasStructuredScoringBasis(result);
+  const score = hasScoreBasis ? riskScore(result) : null;
+  const scoreDisplay = score ?? "--";
+  const scoreSummary = hasScoreBasis && score !== null ? scoreLabel(score) : "待人工复核";
   const highPriorityItems = result.riskItems
     .filter((item) => item.riskLevel === "high" || item.riskLevel === "medium")
     .slice(0, 3);
@@ -187,6 +207,7 @@ export default function ResultPage() {
     medium: result.riskItems.filter((item) => item.riskLevel === "medium"),
     low: result.riskItems.filter((item) => item.riskLevel === "low")
   };
+  const scoringBasis = scoringBasisLabel(result, hasScoreBasis);
 
   if (resultStatus === "loading") {
     return (
@@ -309,8 +330,25 @@ export default function ResultPage() {
 
           <div className="score-card">
             <span>风险评分</span>
-            <strong>{score}</strong>
-            <p>{scoreLabel(score)}</p>
+            <strong>{scoreDisplay}</strong>
+            <p>{scoreSummary}</p>
+            {!hasScoreBasis ? <small>当前未形成可稳定计分的结构化风险清单</small> : null}
+            <div className="score-basis-list">
+              <div>
+                <span>计分依据</span>
+                <strong>{scoringBasis}</strong>
+              </div>
+              <div>
+                <span>参与计分风险项</span>
+                <strong>{hasScoreBasis ? `${result.riskItems.length} 项` : "0 项"}</strong>
+              </div>
+              <div>
+                <span>计分明细</span>
+                <strong>
+                  高 {result.riskStats.high} / 中 {result.riskStats.medium} / 低 {result.riskStats.low}
+                </strong>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -377,7 +415,11 @@ export default function ResultPage() {
                 </div>
                 <div>
                   <span>审查结论</span>
-                  <strong>{scoreLabel(score)}</strong>
+                  <strong>{scoreSummary}</strong>
+                </div>
+                <div>
+                  <span>评分依据</span>
+                  <strong>{scoringBasis}</strong>
                 </div>
               </div>
             </section>
@@ -396,6 +438,11 @@ export default function ResultPage() {
                   下载 Markdown
                 </button>
               </div>
+              {!hasScoreBasis ? (
+                <p className="hint" style={{ marginTop: 12 }}>
+                  当前结果缺少结构化风险项支撑，系统暂不输出可信风险评分。
+                </p>
+              ) : null}
             </section>
 
             <section className="status-card">
@@ -508,7 +555,7 @@ export default function ResultPage() {
                 <section className={`report-body-hero ${result.overallRisk}`}>
                   <div>
                     <span className="eyebrow">Overall Conclusion</span>
-                    <h3>{riskLevelLabel(result.overallRisk)}，{scoreLabel(score)}</h3>
+                    <h3>{riskLevelLabel(result.overallRisk)}，{scoreSummary}</h3>
                     <p>{result.summary}</p>
                   </div>
                   <div className="report-body-hero-stats">

@@ -22,6 +22,21 @@ const sampleContract = `购销合同
 六、违约责任：违约方应赔偿守约方损失。
 七、争议解决：双方协商不成的，提交甲方所在地人民法院诉讼解决。`;
 
+function looksLikeReadableContract(text: string) {
+  const trimmed = text.trim();
+  if (trimmed.length < 20) {
+    return false;
+  }
+
+  const readableChars = (trimmed.match(/[\u4e00-\u9fa5a-zA-Z0-9]/g) || []).length;
+  const symbolChars = (trimmed.match(/[^\u4e00-\u9fa5a-zA-Z0-9\s，。；：、“”‘’（）()\[\]\-—,.]/g) || []).length;
+  const lineCount = trimmed.split(/\n+/).filter(Boolean).length;
+  const readableRatio = readableChars / Math.max(trimmed.length, 1);
+  const symbolRatio = symbolChars / Math.max(trimmed.length, 1);
+
+  return readableRatio >= 0.45 && symbolRatio <= 0.2 && (lineCount >= 2 || readableChars >= 40);
+}
+
 export default function ReviewPage() {
   const contractInputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -135,6 +150,10 @@ export default function ReviewPage() {
     }
     if (!contractText.trim()) {
       setException("请粘贴合同内容，或上传 txt/docx 合同文件。");
+      return;
+    }
+    if (!looksLikeReadableContract(contractText)) {
+      setException("当前文本疑似无有效合同内容，请粘贴可阅读的合同正文后再试。");
       return;
     }
 
