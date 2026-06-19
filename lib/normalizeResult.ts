@@ -106,6 +106,184 @@ function normalizeRiskItems(value: unknown): RiskItem[] {
   });
 }
 
+function sanitizeText(text: string) {
+  return text.replace(/\r/g, "").trim();
+}
+
+function compactCell(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function extractBetween(text: string, startPattern: RegExp, endPattern?: RegExp) {
+  const startMatch = text.match(startPattern);
+  if (!startMatch || startMatch.index === undefined) {
+    return "";
+  }
+
+  const startIndex = startMatch.index + startMatch[0].length;
+  const rest = text.slice(startIndex);
+  if (!endPattern) {
+    return rest.trim();
+  }
+
+  const endMatch = rest.match(endPattern);
+  if (!endMatch || endMatch.index === undefined) {
+    return rest.trim();
+  }
+
+  return rest.slice(0, endMatch.index).trim();
+}
+
+function splitPipeCells(text: string) {
+  return text
+    .split("|")
+    .map((cell) => compactCell(cell))
+    .filter(Boolean);
+}
+
+function extractUniqueTopics(items: RiskItem[]) {
+  const topics: string[] = [];
+  for (const item of items) {
+    const topic = item.checkPoint.split("/")[0]?.trim() || item.checkPoint.trim();
+    if (topic && !topics.includes(topic)) {
+      topics.push(topic);
+    }
+  }
+  return topics;
+}
+
+function parsePlainTextRiskItems(raw: string): RiskItem[] {
+  const normalized = sanitizeText(raw).replace(/\|\|/g, "\n");
+  const compactRaw = sanitizeText(raw).replace(/\n+/g, " ");
+  const candidateLines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line.includes("|"))
+    .filter((line) => !/^[-| ]+$/.test(line))
+    .filter((line) => !line.includes("风险事项|对应审核项|原文表述|风险等级|判定原因|修改建议"));
+
+  const items: RiskItem[] = [];
+  const rowPattern =
+    /(?:^|\|\|)\s*(\d+)\|([^|]+)\|([^|]+)\|([^|]+)\|(高风险|中风险|低风险|high|medium|low)\|([^|]+)\|([^|]+?)(?=(?:\|\|\s*\d+\|)|(?:\|\|##)|(?:最终建议[:：])|(?:免责声明[:：])|$)/gi;
+
+  for (const match of compactRaw.matchAll(rowPattern)) {
+    const [, index, riskIssue, checkPoint, contractText, riskLevelText, reason, suggestion] = match;
+    items.push({
+      id: `R-${String(index).padStart(3, "0")}`,
+      checkPoint: `${compactCell(riskIssue)} / ${compactCell(checkPoint)}`,
+      riskLevel: mapRiskLevel(riskLevelText),
+      contractText: compactCell(contractText),
+      reason: compactCell(reason) || "建议人工复核该项风险。",
+      suggestion: compactCell(suggestion) || "建议结合交易背景补充或修改该条款。",
+      confidence: 0.78
+    });
+  }
+
+  if (items.length > 0) {
+    return items;
+  }
+
+  for (const line of candidateLines) {
+    const cells = splitPipeCells(line);
+    if (cells.length < 6) {
+      continue;
+    }
+
+    const firstCellIsIndex = /^\d+$/.test(cells[0]);
+    const riskIssue = firstCellIsIndex ? cells[1] : cells[0];
+    const checkPoint = firstCellIsIndex ? cells[2] : cells[1];
+    const contractText = firstCellIsIndex ? cells[3] : cells[2];
+    const riskLevelText = firstCellIsIndex ? cells[4] : cells[3];
+    const reason = firstCellIsIndex ? cells[5] : cells[4];
+    const suggestion = firstCellIsIndex ? cells[6] || cells[5] : cells[5] || cells[4];
+
+    if (!riskIssue || !checkPoint || !contractText) {
+      continue;
+    }
+
+    items.push({
+      id: `R-${String(items.length + 1).padStart(3, "0")}`,
+      checkPoint: `${riskIssue} / ${checkPoint}`,
+      riskLevel: mapRiskLevel(riskLevelText),
+      contractText,
+      reason: reason || "建议人工复核该项风险。",
+      suggestion: suggestion || "建议结合交易背景补充或修改该条款。",
+      confidence: 0.72
+    });
+  }
+
+  return items;
+}
+
+function normalizePlainTextReport(raw: string): ReviewResult {
+  const normalized = sanitizeText(raw).replace(/\|\|/g, "\n");
+  const headingMatch = normalized.match(/##\s*([^\n|]+)/);
+  const finalAdvice =
+    extractBetween(normalized, /最终建议[:：]\s*/i, /免责声明[:：]|$/i) ||
+    "Coze 返回了纯文本结果，建议结合人工复核确认风险并补充结构化输出。";
+  const disclaimer = extractBetween(normalized, /免责声明[:：]\s*/i);
+  const riskItems = parsePlainTextRiskItems(normalized);
+  const riskStats = buildStats(riskItems);
+  const overallRisk: RiskLevel =
+    riskStats.high > 0 ? "high" : riskStats.medium > 0 ? "medium" : riskStats.low > 0 ? "low" : mapRiskLevel(normalized);
+  const summaryText =
+    riskItems.length > 0
+      ? (() => {
+          const topics = extractUniqueTopics(riskItems).slice(0, 3);
+          const topicText = topics.length > 0 ? `，重点集中在${topics.join("、")}等条款` : "";
+          return `系统从纯文本结果中恢复出 ${riskItems.length} 项风险，其中高风险 ${riskStats.high} 项、中风险 ${riskStats.medium} 项、低风险 ${riskStats.low} 项${topicText}，建议优先处理高风险事项后再推进签署。`;
+        })()
+      : extractBetween(normalized, /##\s*[^\n]+\n?/i, /(?:\n\s*\d+\s*\||\n风险清单[:：]|\n最终建议[:：]|$)/i) ||
+        normalized.slice(0, 220);
+
+  const normalizedFinalAdvice =
+    compactCell(finalAdvice.replace(/^(\d+\.)?\s*签署建议[:：]?/i, "")) ||
+    "建议结合人工复核确认风险并完善结构化输出。";
+
+  const readableReport = [
+    headingMatch ? headingMatch[1].trim() : "购销合同审查结果",
+    "",
+    `总体风险：${riskLevelLabel(overallRisk)}`,
+    `风险统计：高风险 ${riskStats.high} 项 / 中风险 ${riskStats.medium} 项 / 低风险 ${riskStats.low} 项`,
+    "",
+    compactCell(summaryText),
+    "",
+    riskItems.length
+      ? riskItems
+          .map(
+            (item, index) =>
+              `${index + 1}. 【${riskLevelLabel(item.riskLevel)}】${item.checkPoint}\n原文：${item.contractText}\n原因：${item.reason}\n建议：${item.suggestion}`
+          )
+          .join("\n\n")
+      : normalized,
+    "",
+    `最终建议：${normalizedFinalAdvice}`,
+    disclaimer ? `免责声明：${disclaimer}` : "免责声明：AI 内容仅供初步审查辅助，不构成正式法律意见。"
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    overallRisk,
+    summary: compactCell(summaryText) || "Coze 返回了纯文本审查结果，系统已自动整理为可读结构。",
+    riskStats:
+      riskItems.length > 0
+        ? riskStats
+        : {
+            high: normalized.includes("高风险") ? 1 : 0,
+            medium: normalized.includes("中风险") ? 1 : 0,
+            low: normalized.includes("低风险") ? 1 : 0
+          },
+    riskItems,
+    finalAdvice: normalizedFinalAdvice,
+    reportText: readableReport,
+    isMock: false,
+    source: "coze",
+    rawText: raw
+  };
+}
+
 function buildStats(items: RiskItem[]) {
   return items.reduce(
     (acc, item) => {
@@ -144,18 +322,7 @@ export function normalizeResult(raw: unknown, options?: { fallbackToMock?: boole
   const payload = unwrapCozePayload(raw);
 
   if (typeof payload === "string") {
-    const result: ReviewResult = {
-      overallRisk: "medium",
-      summary: payload.slice(0, 300),
-      riskStats: { high: 0, medium: 1, low: 0 },
-      riskItems: [],
-      finalAdvice: "Coze 返回了纯文本结果，建议人工复核并补充结构化输出格式。",
-      reportText: payload,
-      isMock: false,
-      source: "coze",
-      rawText: payload
-    };
-    return result;
+    return normalizePlainTextReport(payload);
   }
 
   if (!isRecord(payload)) {

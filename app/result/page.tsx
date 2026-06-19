@@ -22,6 +22,24 @@ function hasStructuredScoringBasis(result: ReviewResult) {
   return !result.isMock && result.riskItems.length > 0;
 }
 
+function estimateAssistedScore(result: ReviewResult) {
+  let score = result.overallRisk === "high" ? 78 : result.overallRisk === "medium" ? 52 : 28;
+  score += Math.min(12, result.riskStats.high * 10 + result.riskStats.medium * 5 + result.riskStats.low * 2);
+
+  const text = `${result.summary} ${result.finalAdvice} ${result.rawText || ""}`;
+  const highSignals = ["高风险", "重大", "无效", "未明确", "争议", "违约", "主体", "授权"];
+  const lowSignals = ["低风险", "可签署", "基本完整", "风险较低"];
+
+  score += highSignals.reduce((acc, keyword) => acc + (text.includes(keyword) ? 2 : 0), 0);
+  score -= lowSignals.reduce((acc, keyword) => acc + (text.includes(keyword) ? 2 : 0), 0);
+
+  if (result.isMock) {
+    score = Math.min(score, 58);
+  }
+
+  return Math.max(20, Math.min(89, Math.round(score)));
+}
+
 function scoringBasisLabel(result: ReviewResult, hasScoreBasis: boolean) {
   if (hasScoreBasis) {
     return "真实结构化结果";
@@ -94,6 +112,43 @@ function formalClauseText(text: string) {
   return `建议条款表述：合同中应补充明确约定“${trimmed}”，并以书面条款固定双方责任边界。`;
 }
 
+function summaryLooksNoisy(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return true;
+  }
+  return (
+    trimmed.includes("|") ||
+    trimmed.includes("||") ||
+    trimmed.includes("##") ||
+    trimmed.includes("风险事项") ||
+    trimmed.length > 220
+  );
+}
+
+function extractTopTopics(result: ReviewResult) {
+  const topics: string[] = [];
+  for (const item of result.riskItems) {
+    const topic = item.checkPoint.split("/")[0]?.trim() || item.checkPoint.trim();
+    if (topic && !topics.includes(topic)) {
+      topics.push(topic);
+    }
+  }
+  return topics.slice(0, 3);
+}
+
+function executiveSummary(result: ReviewResult) {
+  if (!summaryLooksNoisy(result.summary)) {
+    return result.summary;
+  }
+
+  const topics = extractTopTopics(result);
+  const topicText = topics.length > 0 ? `，重点集中在${topics.join("、")}等条款` : "";
+  const suffix = result.isMock ? "当前为 AI 辅助整理结果，建议结合人工复核确认。" : "建议优先处理高风险事项后再推进签署。";
+
+  return `本次审查识别出高风险 ${result.riskStats.high} 项、中风险 ${result.riskStats.medium} 项、低风险 ${result.riskStats.low} 项${topicText}。${suffix}`;
+}
+
 export default function ResultPage() {
   const [result, setResult] = useState<ReviewResult>(mockResult);
   const [copied, setCopied] = useState(false);
@@ -148,6 +203,8 @@ export default function ResultPage() {
     resultStatus === "missing" ? "result_missing" : resultStatus === "invalid" ? "result_invalid" : null;
 
   const reportText = useMemo(() => {
+    const scoreValue = hasStructuredScoringBasis(result) ? riskScore(result) : estimateAssistedScore(result);
+    const scoreMode = hasStructuredScoringBasis(result) ? "结构化计分" : "AI辅助估算";
     return [
       "购销合同智能审查报告",
       "",
@@ -156,6 +213,8 @@ export default function ResultPage() {
       `报告来源：${reportSource}`,
       `审查范围：${reportScope}`,
       `审查配置：${reviewConfig}`,
+      `风险评分：${scoreValue}`,
+      `评分模式：${scoreMode}`,
       "",
       `总体风险：${riskLevelLabel(result.overallRisk)}`,
       `风险统计：高风险 ${result.riskStats.high} 项 / 中风险 ${result.riskStats.medium} 项 / 低风险 ${result.riskStats.low} 项`,
@@ -194,9 +253,11 @@ export default function ResultPage() {
   }
 
   const hasScoreBasis = hasStructuredScoringBasis(result);
-  const score = hasScoreBasis ? riskScore(result) : null;
-  const scoreDisplay = score ?? "--";
-  const scoreSummary = hasScoreBasis && score !== null ? scoreLabel(score) : "待人工复核";
+  const scoreMode = hasScoreBasis ? "结构化计分" : "AI辅助估算";
+  const score = hasScoreBasis ? riskScore(result) : estimateAssistedScore(result);
+  const scoreDisplay = score;
+  const scoreSummary = hasScoreBasis ? scoreLabel(score) : `${scoreLabel(score)}（估算）`;
+  const heroSummary = executiveSummary(result);
   const highPriorityItems = result.riskItems
     .filter((item) => item.riskLevel === "high" || item.riskLevel === "medium")
     .slice(0, 3);
@@ -319,7 +380,7 @@ export default function ResultPage() {
           <div>
             <div className="eyebrow">Contract Review Report</div>
             <h1>购销合同智能审查报告</h1>
-            <p>{result.summary}</p>
+            <p>{heroSummary}</p>
             <div className="meta-list">
               <span className={`badge ${result.overallRisk}`}>{riskLevelLabel(result.overallRisk)}</span>
               {result.isMock ? <span className="badge mock">示例结果模式</span> : <span className="pill strong">工作流返回</span>}
@@ -329,11 +390,15 @@ export default function ResultPage() {
           </div>
 
           <div className="score-card">
-            <span>风险评分</span>
+            <span>{scoreMode}</span>
             <strong>{scoreDisplay}</strong>
             <p>{scoreSummary}</p>
-            {!hasScoreBasis ? <small>当前未形成可稳定计分的结构化风险清单</small> : null}
+            {!hasScoreBasis ? <small>当前分数基于总体风险、风险统计与结果文本关键词进行辅助估算</small> : null}
             <div className="score-basis-list">
+              <div>
+                <span>评分模式</span>
+                <strong>{scoreMode}</strong>
+              </div>
               <div>
                 <span>计分依据</span>
                 <strong>{scoringBasis}</strong>
@@ -440,7 +505,7 @@ export default function ResultPage() {
               </div>
               {!hasScoreBasis ? (
                 <p className="hint" style={{ marginTop: 12 }}>
-                  当前结果缺少结构化风险项支撑，系统暂不输出可信风险评分。
+                  当前结果未返回完整结构化风险清单，页面展示的是 AI 辅助估算分，可用于快速量化风险程度，但仍建议结合人工复核判断。
                 </p>
               ) : null}
             </section>
@@ -553,10 +618,10 @@ export default function ResultPage() {
               </div>
               <div className="report-body">
                 <section className={`report-body-hero ${result.overallRisk}`}>
-                  <div>
+                  <div className="report-body-hero-copy">
                     <span className="eyebrow">Overall Conclusion</span>
                     <h3>{riskLevelLabel(result.overallRisk)}，{scoreSummary}</h3>
-                    <p>{result.summary}</p>
+                    <p>{heroSummary}</p>
                   </div>
                   <div className="report-body-hero-stats">
                     <div>
