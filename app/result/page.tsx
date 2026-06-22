@@ -5,11 +5,19 @@ import { mockResult } from "@/lib/mockResult";
 import { riskLevelLabel } from "@/lib/normalizeResult";
 import type { ReviewExceptionKind, ReviewResult, RiskLevel } from "@/lib/types";
 
+type SuggestionView = "original" | "concise" | "formal";
+
 const riskFilters: Array<{ label: string; value: "all" | RiskLevel }> = [
   { label: "全部", value: "all" },
   { label: "高风险", value: "high" },
   { label: "中风险", value: "medium" },
   { label: "低风险", value: "low" }
+];
+
+const suggestionViews: Array<{ label: string; value: SuggestionView }> = [
+  { label: "原始建议", value: "original" },
+  { label: "简洁版", value: "concise" },
+  { label: "条款版", value: "formal" }
 ];
 
 function riskScore(result: ReviewResult) {
@@ -112,6 +120,16 @@ function formalClauseText(text: string) {
   return `建议条款表述：合同中应补充明确约定“${trimmed}”，并以书面条款固定双方责任边界。`;
 }
 
+function suggestionViewText(text: string, view: SuggestionView) {
+  if (view === "concise") {
+    return conciseSuggestionText(text);
+  }
+  if (view === "formal") {
+    return formalClauseText(text) || suggestedClauseText(text);
+  }
+  return text.trim();
+}
+
 function summaryLooksNoisy(text: string) {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -153,6 +171,7 @@ export default function ResultPage() {
   const [result, setResult] = useState<ReviewResult>(mockResult);
   const [copied, setCopied] = useState(false);
   const [activeFilter, setActiveFilter] = useState<"all" | RiskLevel>("all");
+  const [suggestionViewById, setSuggestionViewById] = useState<Record<string, SuggestionView>>({});
   const [reportId, setReportId] = useState("");
   const [generatedAtIso, setGeneratedAtIso] = useState("");
   const [resultStatus, setResultStatus] = useState<"loading" | "ready" | "missing" | "invalid">("loading");
@@ -269,6 +288,19 @@ export default function ResultPage() {
     low: result.riskItems.filter((item) => item.riskLevel === "low")
   };
   const scoringBasis = scoringBasisLabel(result, hasScoreBasis);
+
+  function currentSuggestionView(itemId: string) {
+    return suggestionViewById[itemId] ?? "original";
+  }
+
+  function switchSuggestionView(itemId: string, view: SuggestionView) {
+    setSuggestionViewById((current) => {
+      if (current[itemId] === view) {
+        return current;
+      }
+      return { ...current, [itemId]: view };
+    });
+  }
 
   if (resultStatus === "loading") {
     return (
@@ -704,16 +736,31 @@ export default function ResultPage() {
                               </div>
                               <div className="suggestion-block">
                                 <span>修改建议</span>
-                                <p>{item.suggestion}</p>
-                                <div className="suggestion-stack">
-                                  <div className="suggestion-quote">
-                                    <strong>简洁版建议</strong>
-                                    <blockquote>{conciseSuggestionText(item.suggestion)}</blockquote>
-                                  </div>
-                                  <div className="suggestion-quote formal">
-                                    <strong>正式条款版建议</strong>
-                                    <blockquote>{formalClauseText(item.suggestion) || suggestedClauseText(item.suggestion)}</blockquote>
-                                  </div>
+                                <div className="suggestion-tabs" role="tablist" aria-label="建议版本切换">
+                                  {suggestionViews.map((view) => {
+                                    const active = currentSuggestionView(item.id) === view.value;
+                                    return (
+                                      <button
+                                        key={`${item.id}-${view.value}`}
+                                        type="button"
+                                        className={`suggestion-tab${active ? " active" : ""}`}
+                                        aria-pressed={active}
+                                        onClick={() => switchSuggestionView(item.id, view.value)}
+                                      >
+                                        {view.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <div className={`suggestion-quote${currentSuggestionView(item.id) === "formal" ? " formal" : ""}`}>
+                                  <strong>
+                                    {currentSuggestionView(item.id) === "original"
+                                      ? "原始建议"
+                                      : currentSuggestionView(item.id) === "concise"
+                                        ? "简洁版建议"
+                                        : "正式条款版建议"}
+                                  </strong>
+                                  <blockquote>{suggestionViewText(item.suggestion, currentSuggestionView(item.id))}</blockquote>
                                 </div>
                               </div>
                             </div>

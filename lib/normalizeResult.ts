@@ -2,6 +2,7 @@ import { mockResult } from "./mockResult";
 import type { ReviewResult, RiskItem, RiskLevel } from "./types";
 
 type AnyRecord = Record<string, unknown>;
+type ConfidenceSource = "structured" | "plain_text_row" | "plain_pipe_row";
 
 function isRecord(value: unknown): value is AnyRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -17,6 +18,10 @@ function pickString(record: AnyRecord, keys: string[], fallback = "") {
   return fallback;
 }
 
+function clampConfidence(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
 function mapRiskLevel(value: unknown): RiskLevel {
   const text = String(value ?? "").toLowerCase();
   if (["高", "high", "严重", "重大"].some((item) => text.includes(item))) {
@@ -26,6 +31,66 @@ function mapRiskLevel(value: unknown): RiskLevel {
     return "low";
   }
   return "medium";
+}
+
+function estimateConfidence({
+  checkPoint,
+  contractText,
+  reason,
+  suggestion,
+  riskLevel,
+  source
+}: {
+  checkPoint: string;
+  contractText: string;
+  reason: string;
+  suggestion: string;
+  riskLevel: RiskLevel;
+  source: ConfidenceSource;
+}) {
+  let score = source === "structured" ? 0.68 : source === "plain_text_row" ? 0.62 : 0.58;
+
+  const normalizedFields = [checkPoint, contractText, reason, suggestion].map((item) => item.trim());
+  const totalLength = normalizedFields.reduce((sum, item) => sum + item.length, 0);
+
+  if (checkPoint && checkPoint !== "未命名审查项") {
+    score += 0.05;
+  }
+  if (contractText && contractText !== "未提取到对应合同原文") {
+    score += contractText.length > 18 ? 0.08 : 0.04;
+  }
+  if (reason && reason !== "建议人工复核该项风险。") {
+    score += reason.length > 24 ? 0.09 : 0.05;
+  }
+  if (suggestion && suggestion !== "建议结合交易背景补充或修改该条款。") {
+    score += suggestion.length > 20 ? 0.08 : 0.05;
+  }
+  if (totalLength > 90) {
+    score += 0.04;
+  }
+
+  const legalSignals = ["合同", "条款", "验收", "交付", "违约", "授权", "付款", "质量", "主体", "风险"];
+  const reasonSignals = ["无法", "未", "缺少", "不明", "争议", "无效", "责任", "边界", "不清"];
+  const suggestionSignals = ["建议", "补充", "明确", "约定", "写明", "提供", "核实", "增加"];
+
+  const joinedText = `${checkPoint} ${contractText}`;
+  if (legalSignals.some((keyword) => joinedText.includes(keyword))) {
+    score += 0.04;
+  }
+  if (reasonSignals.some((keyword) => reason.includes(keyword))) {
+    score += 0.04;
+  }
+  if (suggestionSignals.some((keyword) => suggestion.includes(keyword))) {
+    score += 0.04;
+  }
+
+  score += riskLevel === "high" ? 0.04 : riskLevel === "medium" ? 0.025 : 0.01;
+
+  if (source === "plain_pipe_row") {
+    score -= 0.04;
+  }
+
+  return clampConfidence(Math.round(score * 100) / 100);
 }
 
 function parseMaybeJson(value: unknown): unknown {
@@ -100,8 +165,15 @@ function normalizeRiskItems(value: unknown): RiskItem[] {
       suggestion: pickString(record, ["suggestion", "建议", "修改建议"], "建议结合交易背景补充或修改该条款。"),
       confidence:
         typeof record.confidence === "number"
-          ? Math.max(0, Math.min(1, record.confidence))
-          : 0.75
+          ? clampConfidence(record.confidence)
+          : estimateConfidence({
+              checkPoint: pickString(record, ["checkPoint", "check_point", "checkpoint", "审查项"], "未命名审查项"),
+              contractText: pickString(record, ["contractText", "contract_text", "原文", "合同原文"], "未提取到对应合同原文"),
+              reason: pickString(record, ["reason", "riskReason", "风险原因", "原因"], "建议人工复核该项风险。"),
+              suggestion: pickString(record, ["suggestion", "建议", "修改建议"], "建议结合交易背景补充或修改该条款。"),
+              riskLevel: mapRiskLevel(record.riskLevel ?? record.risk_level ?? record["风险等级"]),
+              source: "structured"
+            })
     };
   });
 }
@@ -176,7 +248,14 @@ function parsePlainTextRiskItems(raw: string): RiskItem[] {
       contractText: compactCell(contractText),
       reason: compactCell(reason) || "建议人工复核该项风险。",
       suggestion: compactCell(suggestion) || "建议结合交易背景补充或修改该条款。",
-      confidence: 0.78
+      confidence: estimateConfidence({
+        checkPoint: `${compactCell(riskIssue)} / ${compactCell(checkPoint)}`,
+        riskLevel: mapRiskLevel(riskLevelText),
+        contractText: compactCell(contractText),
+        reason: compactCell(reason) || "建议人工复核该项风险。",
+        suggestion: compactCell(suggestion) || "建议结合交易背景补充或修改该条款。",
+        source: "plain_text_row"
+      })
     });
   }
 
@@ -209,7 +288,14 @@ function parsePlainTextRiskItems(raw: string): RiskItem[] {
       contractText,
       reason: reason || "建议人工复核该项风险。",
       suggestion: suggestion || "建议结合交易背景补充或修改该条款。",
-      confidence: 0.72
+      confidence: estimateConfidence({
+        checkPoint: `${riskIssue} / ${checkPoint}`,
+        riskLevel: mapRiskLevel(riskLevelText),
+        contractText,
+        reason: reason || "建议人工复核该项风险。",
+        suggestion: suggestion || "建议结合交易背景补充或修改该条款。",
+        source: "plain_pipe_row"
+      })
     });
   }
 
