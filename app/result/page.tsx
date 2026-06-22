@@ -81,6 +81,16 @@ function confidenceLabel(confidence: number) {
   return "低";
 }
 
+function confidenceHintText(result: ReviewResult) {
+  if (result.isMock) {
+    return "当前为示例演示数据，置信度用于展示页面效果；正式接入后将优先读取工作流返回值。";
+  }
+  if (result.rawText) {
+    return "当前置信度为系统估算值，综合审查项完整度、合同原文定位、判定原因与修改建议完整性、风险关键词命中和风险等级生成，仅用于辅助判断。";
+  }
+  return "当前置信度优先使用工作流返回的结构化结果；若未返回，则系统会按审查项完整度、原文定位、原因/建议完整性和风险等级进行估算。";
+}
+
 function createReportId() {
   const datePart = new Date().toISOString().slice(0, 10).replaceAll("-", "");
   const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -165,6 +175,22 @@ function executiveSummary(result: ReviewResult) {
   const suffix = result.isMock ? "当前为 AI 辅助整理结果，建议结合人工复核确认。" : "建议优先处理高风险事项后再推进签署。";
 
   return `本次审查识别出高风险 ${result.riskStats.high} 项、中风险 ${result.riskStats.medium} 项、低风险 ${result.riskStats.low} 项${topicText}。${suffix}`;
+}
+
+function ConfidenceMeta({ confidence, hintText }: { confidence: string; hintText: string }) {
+  return (
+    <div className="confidence-meta">
+      <span className="pill">{confidence}</span>
+      <button className="confidence-info" type="button" aria-label="查看置信度说明">
+        i
+      </button>
+      <div className="confidence-tooltip" role="tooltip">
+        <strong>置信度说明</strong>
+        <p>{hintText}</p>
+        <small>低置信度或缺少合同依据的结论，建议结合原文进一步人工复核。</small>
+      </div>
+    </div>
+  );
 }
 
 export default function ResultPage() {
@@ -288,6 +314,7 @@ export default function ResultPage() {
     low: result.riskItems.filter((item) => item.riskLevel === "low")
   };
   const scoringBasis = scoringBasisLabel(result, hasScoreBasis);
+  const confidenceHint = confidenceHintText(result);
 
   function currentSuggestionView(itemId: string) {
     return suggestionViewById[itemId] ?? "original";
@@ -567,7 +594,7 @@ export default function ResultPage() {
                   <article className="finding-card" key={item.id}>
                     <div className="result-header">
                       <span className={`badge ${item.riskLevel}`}>{riskLevelLabel(item.riskLevel)}</span>
-                      <span className="pill">置信度 {confidenceLabel(item.confidence)}</span>
+                      <ConfidenceMeta confidence={`置信度 ${confidenceLabel(item.confidence)}`} hintText={confidenceHint} />
                     </div>
                     <h3>{item.checkPoint}</h3>
                     <p>{item.reason}</p>
@@ -607,7 +634,7 @@ export default function ResultPage() {
                           <span className={`badge ${item.riskLevel}`}>{riskLevelLabel(item.riskLevel)}</span>
                           <h3>{item.checkPoint}</h3>
                         </div>
-                        <span className="pill">置信度 {Math.round(item.confidence * 100)}%</span>
+                        <ConfidenceMeta confidence={`置信度 ${Math.round(item.confidence * 100)}%`} hintText={confidenceHint} />
                       </div>
                       <div className="risk-detail-grid">
                         <div>
@@ -687,7 +714,7 @@ export default function ResultPage() {
                             {item.riskLevel === "high" ? <span className="risk-alert-icon">!</span> : null}
                             <span className={`badge ${item.riskLevel}`}>{riskLevelLabel(item.riskLevel)}</span>
                           </div>
-                          <span className="pill">置信度 {Math.round(item.confidence * 100)}%</span>
+                          <ConfidenceMeta confidence={`置信度 ${Math.round(item.confidence * 100)}%`} hintText={confidenceHint} />
                         </div>
                         <h4>{item.checkPoint}</h4>
                         <p>{item.reason}</p>
@@ -722,7 +749,7 @@ export default function ResultPage() {
                                   <h4>{item.checkPoint}</h4>
                                 </div>
                               </div>
-                              <span className="pill">置信度 {Math.round(item.confidence * 100)}%</span>
+                              <ConfidenceMeta confidence={`置信度 ${Math.round(item.confidence * 100)}%`} hintText={confidenceHint} />
                             </div>
 
                             <div className="report-entry-grid">
